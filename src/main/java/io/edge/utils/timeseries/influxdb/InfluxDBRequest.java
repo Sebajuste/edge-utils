@@ -4,6 +4,7 @@ import java.util.Map;
 
 import io.edge.utils.timeseries.BatchPoints;
 import io.edge.utils.timeseries.Point;
+import io.vertx.core.buffer.Buffer;
 
 public final class InfluxDBRequest {
 
@@ -11,7 +12,7 @@ public final class InfluxDBRequest {
 		super();
 	}
 
-	public static String writeRequest(Point point) throws InfluxDBException {
+	public static Buffer writeRequest(Point point) throws InfluxDBException {
 
 		if (point.getValues().isEmpty()) {
 			throw new InfluxDBException("Point has no value");
@@ -56,10 +57,10 @@ public final class InfluxDBRequest {
 			request.append(" " + point.getTimestamp());
 		}
 
-		return request.toString();
+		return Buffer.buffer(request.toString());
 	}
 
-	public static String writeRequest(BatchPoints batch) throws InfluxDBException {
+	public static Buffer writeRequest(BatchPoints batch) throws InfluxDBException {
 
 		final StringBuilder request = new StringBuilder();
 
@@ -82,7 +83,7 @@ public final class InfluxDBRequest {
 			throw new InfluxDBException("Batch has no point");
 		}
 
-		return request.toString();
+		return Buffer.buffer(request.toString());
 	}
 
 }

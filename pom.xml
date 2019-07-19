@@ -10,7 +10,7 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<java.version>1.8</java.version>
-		<vertx.version>3.7.0</vertx.version>
+		<vertx.version>3.7.1</vertx.version>
 	</properties>
 
 	<build>
@@ -50,6 +50,11 @@
 			<groupId>io.vertx</groupId>
 			<artifactId>vertx-core</artifactId>
 			<scope>provided</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>io.vertx</groupId>
+			<artifactId>vertx-web-client</artifactId>
 		</dependency>
 
 		<dependency>
