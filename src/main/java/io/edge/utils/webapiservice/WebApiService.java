@@ -25,7 +25,12 @@ public class WebApiService {
 
 	public void bind(JsonObject config) {
 
-		vertx.eventBus().consumer(config.getString("endpoint"), message -> {
+		if (!config.containsKey("endpoint") || !config.containsKey("file") || !config.containsKey("subpath") || !config.containsKey("name")) {
+			System.err.println("Invalid configuration");
+			return;
+		}
+		
+		this.vertx.eventBus().consumer(config.getString("endpoint"), message -> {
 
 			String action = message.headers().get("action");
 

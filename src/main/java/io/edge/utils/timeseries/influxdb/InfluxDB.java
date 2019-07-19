@@ -1,7 +1,6 @@
 package io.edge.utils.timeseries.influxdb;
 
 import java.net.URLEncoder;
-import java.nio.charset.Charset;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -24,29 +23,41 @@ import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
-import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.HttpRequest;
+import io.vertx.ext.web.client.HttpResponse;
+import io.vertx.ext.web.client.WebClient;
 
 public class InfluxDB {
 
-	private final HttpClient client;
+	// private final HttpClient client;
+
+	private final WebClient client;
 
 	private final InfluxDbOptions options;
 
-	protected InfluxDB(HttpClient client, InfluxDbOptions options) {
+	protected InfluxDB(WebClient client, InfluxDbOptions options) {
 		super();
 		this.client = client;
 		this.options = options;
 	}
 
-	public static InfluxDB connect(HttpClient client) {
+	public static InfluxDB connect(WebClient client) {
 		return new InfluxDB(client, new InfluxDbOptions());
 	}
 
-	public static InfluxDB connect(HttpClient client, InfluxDbOptions options) {
+	public static InfluxDB connect(WebClient client, InfluxDbOptions options) {
 		return new InfluxDB(client, options);
+	}
+
+	public static InfluxDB connect(HttpClient client) {
+		return new InfluxDB(WebClient.wrap(client), new InfluxDbOptions());
+	}
+
+	public static InfluxDB connect(HttpClient client, InfluxDbOptions options) {
+		return new InfluxDB(WebClient.wrap(client), options);
 	}
 
 	public static InfluxDB create(Vertx vertx, InfluxDbOptions options) {
@@ -60,60 +71,85 @@ public class InfluxDB {
 		return InfluxDB.connect(client, options);
 	}
 
-	private void getRequest(String request, Handler<AsyncResult<Buffer>> handler) {
+	private void getRequest(String requestURI, JsonObject queryParams, Handler<AsyncResult<Buffer>> handler) {
+
 		final Future<Buffer> future = Future.future();
 		future.setHandler(handler);
 
-		HttpClientRequest clientRequest = client.get(request, response -> {
+		HttpRequest<Buffer> httpRequest = client.get(requestURI);
 
-			if (response.statusCode() == HttpResponseStatus.OK.code()) {
-				response.bodyHandler(body -> future.complete(body));
-			} else if (response.statusCode() == HttpResponseStatus.NO_CONTENT.code()) {
-				future.complete();
-			} else {
-				response.bodyHandler(body -> {
-					if ("Not series found".equalsIgnoreCase(body.toString(Charset.defaultCharset()))) {
+		if (options.getUserName() != null && options.getUserName().trim().length() > 0) {
+			String auth = Base64.getEncoder().encodeToString((options.getUserName() + ":" + options.getPassword()).getBytes());
+			httpRequest.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Basic " + auth);
+		}
+
+		for (String field : queryParams.fieldNames()) {
+			httpRequest.addQueryParam(field, queryParams.getValue(field).toString());
+		}
+
+		httpRequest.send(ar -> {
+			if (ar.succeeded()) {
+
+				HttpResponse<Buffer> response = ar.result();
+
+				Buffer body = response.body();
+
+				if (response.statusCode() == HttpResponseStatus.OK.code()) {
+					future.complete(body);
+				} else if (response.statusCode() == HttpResponseStatus.NO_CONTENT.code()) {
+					future.complete();
+				} else {
+
+					if ("Not series found".equalsIgnoreCase(body.toString())) {
 						future.complete();
 					} else {
 						future.fail(body.toString());
 					}
+				}
 
-				});
+			} else {
+				future.fail(ar.cause());
 			}
-
 		});
-
-		if (options.getUserName() != null && options.getUserName().trim().length() > 0) {
-			String auth = Base64.getEncoder().encodeToString((options.getUserName() + ":" + options.getPassword()).getBytes());
-			clientRequest.putHeader(HttpHeaders.AUTHORIZATION, "Basic " + auth);
-		}
-
-		clientRequest.end();
 
 	}
 
-	private void postRequest(String request, String chunk, Handler<AsyncResult<Void>> handler) {
+	private void postRequest(String requestURI, JsonObject queryParams, Buffer chunk, Handler<AsyncResult<Void>> handler) {
 
 		final Future<Void> future = Future.future();
 
-		HttpClientRequest clientRequest = client.post(request, response -> {
+		future.setHandler(handler);
 
-			if (response.statusCode() == HttpResponseStatus.NO_CONTENT.code()) {
-				future.complete();
-			} else {
-				response.bodyHandler(body -> future.fail(body.toString()));
-			}
-
-		}).putHeader(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded");
+		HttpRequest<Buffer> httpRequest = client.get(requestURI);
 
 		if (options.getUserName() != null && options.getUserName().trim().length() > 0) {
 			String auth = Base64.getEncoder().encodeToString((options.getUserName() + ":" + options.getPassword()).getBytes());
-			clientRequest.putHeader(HttpHeaders.AUTHORIZATION, "Basic " + auth);
+			httpRequest.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Basic " + auth);
 		}
 
-		clientRequest.end(chunk);
+		httpRequest.putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/x-www-form-urlencoded");
 
-		future.setHandler(handler);
+		for (String field : queryParams.fieldNames()) {
+			httpRequest.addQueryParam(field, queryParams.getValue(field).toString());
+		}
+
+		httpRequest.sendBuffer(chunk, ar -> {
+
+			if (ar.succeeded()) {
+
+				HttpResponse<Buffer> response = ar.result();
+
+				if (response.statusCode() == HttpResponseStatus.NO_CONTENT.code()) {
+					future.complete();
+				} else {
+					future.fail(response.body().toString());
+				}
+
+			} else {
+				future.fail(ar.cause());
+			}
+
+		});
 
 	}
 
@@ -122,7 +158,10 @@ public class InfluxDB {
 		Future<Void> future = Future.future();
 		future.setHandler(handler);
 
-		this.getRequest("/query?q=CREATE%20DATABASE%20%22" + dbName + "%22", ar -> {
+		JsonObject params = new JsonObject()//
+				.put("q", "CREATE DATABASE \"" + dbName + "\"");
+
+		this.getRequest("/query", params, ar -> {
 			if (ar.succeeded()) {
 				future.complete();
 			} else {
@@ -136,7 +175,10 @@ public class InfluxDB {
 		Future<Void> future = Future.future();
 		future.setHandler(handler);
 
-		this.getRequest("/query?q=DELETE%20DATABASE%20%22" + dbName + "%22", ar -> {
+		JsonObject params = new JsonObject()//
+				.put("q", "DELETE DATABASE \"" + dbName + "\"");
+
+		this.getRequest("/query", params, ar -> {
 			if (ar.succeeded()) {
 				future.complete();
 			} else {
@@ -148,7 +190,15 @@ public class InfluxDB {
 
 	public void write(String dbName, Point point, Handler<AsyncResult<Void>> handler) {
 		try {
-			this.postRequest("/write?db=" + dbName + "&precision=ms", InfluxDBRequest.writeRequest(point), handler);
+
+			JsonObject params = new JsonObject()//
+					.put("db", dbName)//
+					.put("precision", "ms");
+
+			// this.postRequest("/write?db=" + dbName + "&precision=ms",
+			// InfluxDBRequest.writeRequest(point), handler);
+
+			this.postRequest("/write", params, InfluxDBRequest.writeRequest(point), handler);
 		} catch (Exception e) {
 			handler.handle(Future.failedFuture(e));
 		}
@@ -156,7 +206,15 @@ public class InfluxDB {
 
 	public void write(BatchPoints batch, Handler<AsyncResult<Void>> handler) {
 		try {
-			this.postRequest("/write?db=" + batch.getDbName() + "&precision=ms", InfluxDBRequest.writeRequest(batch), handler);
+
+			JsonObject params = new JsonObject()//
+					.put("db", batch.getDbName())//
+					.put("precision", "ms");
+
+			this.postRequest("/write", params, InfluxDBRequest.writeRequest(batch), handler);
+
+			// this.postRequest("/write?db=" + batch.getDbName() +
+			// "&precision=ms", InfluxDBRequest.writeRequest(batch), handler);
 		} catch (Exception e) {
 			handler.handle(Future.failedFuture(e));
 		}
@@ -168,7 +226,12 @@ public class InfluxDB {
 		future.setHandler(resultHandler);
 
 		try {
-			this.getRequest("/query?db=" + dbName + "&q=" + URLEncoder.encode(query, "UTF-8"), ar -> {
+
+			JsonObject params = new JsonObject()//
+					.put("db", dbName)//
+					.put("q", URLEncoder.encode(query, "UTF-8"));
+
+			this.getRequest("/query", params, ar -> {
 
 				if (ar.succeeded()) {
 
