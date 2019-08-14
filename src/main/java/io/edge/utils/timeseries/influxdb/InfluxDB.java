@@ -32,8 +32,6 @@ import io.vertx.ext.web.client.WebClient;
 
 public class InfluxDB {
 
-	// private final HttpClient client;
-
 	private final WebClient client;
 
 	private final InfluxDbOptions options;
@@ -79,8 +77,7 @@ public class InfluxDB {
 		HttpRequest<Buffer> httpRequest = client.get(requestURI);
 
 		if (options.getUserName() != null && options.getUserName().trim().length() > 0) {
-			String auth = Base64.getEncoder().encodeToString((options.getUserName() + ":" + options.getPassword()).getBytes());
-			httpRequest.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Basic " + auth);
+			httpRequest.basicAuthentication(options.getUserName(), options.getPassword());
 		}
 
 		for (String field : queryParams.fieldNames()) {
@@ -120,11 +117,10 @@ public class InfluxDB {
 
 		future.setHandler(handler);
 
-		HttpRequest<Buffer> httpRequest = client.get(requestURI);
+		HttpRequest<Buffer> httpRequest = client.post(requestURI);
 
 		if (options.getUserName() != null && options.getUserName().trim().length() > 0) {
-			String auth = Base64.getEncoder().encodeToString((options.getUserName() + ":" + options.getPassword()).getBytes());
-			httpRequest.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Basic " + auth);
+			httpRequest.basicAuthentication(options.getUserName(), options.getPassword());
 		}
 
 		httpRequest.putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/x-www-form-urlencoded");
@@ -132,7 +128,7 @@ public class InfluxDB {
 		for (String field : queryParams.fieldNames()) {
 			httpRequest.addQueryParam(field, queryParams.getValue(field).toString());
 		}
-
+		
 		httpRequest.sendBuffer(chunk, ar -> {
 
 			if (ar.succeeded()) {
@@ -195,9 +191,6 @@ public class InfluxDB {
 					.put("db", dbName)//
 					.put("precision", "ms");
 
-			// this.postRequest("/write?db=" + dbName + "&precision=ms",
-			// InfluxDBRequest.writeRequest(point), handler);
-
 			this.postRequest("/write", params, InfluxDBRequest.writeRequest(point), handler);
 		} catch (Exception e) {
 			handler.handle(Future.failedFuture(e));
@@ -213,8 +206,6 @@ public class InfluxDB {
 
 			this.postRequest("/write", params, InfluxDBRequest.writeRequest(batch), handler);
 
-			// this.postRequest("/write?db=" + batch.getDbName() +
-			// "&precision=ms", InfluxDBRequest.writeRequest(batch), handler);
 		} catch (Exception e) {
 			handler.handle(Future.failedFuture(e));
 		}
