@@ -6,7 +6,6 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 
 import io.edge.utils.sql.SQLBuilder;
@@ -19,6 +18,7 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
@@ -71,8 +71,8 @@ public class InfluxDB {
 
 	private void getRequest(String requestURI, JsonObject queryParams, Handler<AsyncResult<Buffer>> handler) {
 
-		final Future<Buffer> future = Future.future();
-		future.setHandler(handler);
+		final Promise<Buffer> promise = Promise.promise();
+		promise.future().setHandler(handler);
 
 		HttpRequest<Buffer> httpRequest = client.get(requestURI);
 
@@ -92,20 +92,20 @@ public class InfluxDB {
 				Buffer body = response.body();
 
 				if (response.statusCode() == HttpResponseStatus.OK.code()) {
-					future.complete(body);
+					promise.complete(body);
 				} else if (response.statusCode() == HttpResponseStatus.NO_CONTENT.code()) {
-					future.complete();
+					promise.complete();
 				} else {
 
 					if ("Not series found".equalsIgnoreCase(body.toString())) {
-						future.complete();
+						promise.complete();
 					} else {
-						future.fail(body.toString());
+						promise.fail(body.toString());
 					}
 				}
 
 			} else {
-				future.fail(ar.cause());
+				promise.fail(ar.cause());
 			}
 		});
 
@@ -113,9 +113,8 @@ public class InfluxDB {
 
 	private void postRequest(String requestURI, JsonObject queryParams, Buffer chunk, Handler<AsyncResult<Void>> handler) {
 
-		final Future<Void> future = Future.future();
-
-		future.setHandler(handler);
+		final Promise<Void> promise = Promise.promise();
+		promise.future().setHandler(handler);
 
 		HttpRequest<Buffer> httpRequest = client.post(requestURI);
 
@@ -136,13 +135,13 @@ public class InfluxDB {
 				HttpResponse<Buffer> response = ar.result();
 
 				if (response.statusCode() == HttpResponseStatus.NO_CONTENT.code()) {
-					future.complete();
+					promise.complete();
 				} else {
-					future.fail(response.body().toString());
+					promise.fail(response.body().toString());
 				}
 
 			} else {
-				future.fail(ar.cause());
+				promise.fail(ar.cause());
 			}
 
 		});
@@ -151,34 +150,35 @@ public class InfluxDB {
 
 	public void createDatabase(String dbName, Handler<AsyncResult<Void>> handler) {
 
-		Future<Void> future = Future.future();
-		future.setHandler(handler);
+		final Promise<Void> promise = Promise.promise();
+		promise.future().setHandler(handler);
 
 		JsonObject params = new JsonObject()//
 				.put("q", "CREATE DATABASE \"" + dbName + "\"");
 
 		this.getRequest("/query", params, ar -> {
 			if (ar.succeeded()) {
-				future.complete();
+				promise.complete();
 			} else {
-				future.fail(ar.cause());
+				promise.fail(ar.cause());
 			}
 		});
 
 	}
 
 	public void deleteDatabase(String dbName, Handler<AsyncResult<Void>> handler) {
-		Future<Void> future = Future.future();
-		future.setHandler(handler);
+		
+		final Promise<Void> promise = Promise.promise();
+		promise.future().setHandler(handler);
 
 		JsonObject params = new JsonObject()//
 				.put("q", "DELETE DATABASE \"" + dbName + "\"");
 
 		this.getRequest("/query", params, ar -> {
 			if (ar.succeeded()) {
-				future.complete();
+				promise.complete();
 			} else {
-				future.fail(ar.cause());
+				promise.fail(ar.cause());
 			}
 		});
 
@@ -212,9 +212,9 @@ public class InfluxDB {
 	}
 
 	public void query(String dbName, String query, Handler<AsyncResult<JsonArray>> resultHandler) {
-
-		Future<JsonArray> future = Future.future();
-		future.setHandler(resultHandler);
+		
+		final Promise<JsonArray> promise = Promise.promise();
+		promise.future().setHandler(resultHandler);
 
 		try {
 
@@ -233,22 +233,22 @@ public class InfluxDB {
 						JsonArray resultSeries = body.getJsonArray("results").getJsonObject(0).getJsonArray("series");
 
 						if (resultSeries == null) {
-							future.fail("Not series found");
+							promise.fail("Not series found");
 						} else {
-							future.complete(resultSeries);
+							promise.complete(resultSeries);
 						}
 
 					} catch (Exception e) {
-						future.fail(e);
+						promise.fail(e);
 					}
 
 				} else {
-					future.fail(ar.cause());
+					promise.fail(ar.cause());
 				}
 
 			});
 		} catch (Exception e) {
-			future.fail(e);
+			promise.fail(e);
 		}
 
 	}
@@ -283,8 +283,8 @@ public class InfluxDB {
 		String query = queryBuilder.groupBy("time(" + timeGroup + ") FILL(null)")//
 				.build();
 
-		Future<Serie> future = Future.future();
-		future.setHandler(resultHandler);
+		Promise<Serie> promise = Promise.promise();
+		promise.future().setHandler(resultHandler);
 
 		this.query(dbName, query, ar -> {
 
@@ -312,15 +312,15 @@ public class InfluxDB {
 
 					}
 
-					future.complete(new Serie(measurement, tags, points));
+					promise.complete(new Serie(measurement, tags, points));
 
 				} catch (Exception e) {
-					future.fail(e);
+					promise.fail(e);
 					e.printStackTrace();
 				}
 
 			} else {
-				future.fail(ar.cause());
+				promise.fail(ar.cause());
 			}
 
 		});
