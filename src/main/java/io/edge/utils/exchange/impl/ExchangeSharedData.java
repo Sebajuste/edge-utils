@@ -13,19 +13,16 @@ import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.eventbus.MessageConsumer;
 import io.vertx.core.json.JsonObject;
-import io.vertx.core.logging.Logger;
-import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.shareddata.AsyncMap;
 import io.vertx.core.shareddata.Lock;
 
 public class ExchangeSharedData implements Exchange {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(ExchangeSharedData.class);
-
 	private final Vertx vertx;
 
 	private final String name;
 
+	@SuppressWarnings("unused")
 	private final JsonObject options;
 
 	public ExchangeSharedData(Vertx vertx, String name, JsonObject options) {
@@ -86,7 +83,7 @@ public class ExchangeSharedData implements Exchange {
 
 							map.put(queueAddress, queueConfig, future);
 
-							LOGGER.info("Queue added/updated : " + queueConfig + " at " + queueAddress);
+							// LOGGER.info("Queue added/updated : " + queueConfig + " at " + queueAddress);
 
 							message.reply(null);
 
@@ -134,8 +131,7 @@ public class ExchangeSharedData implements Exchange {
 								if (subscribeCount == 1) {
 									map.remove(queueAddress, removeResult -> {
 										if (removeResult.succeeded()) {
-											LOGGER.info("Queue removed : " + queueConfig + " at " + queueAddress);
-											// future.succeeded();
+											// LOGGER.info("Queue removed : " + queueConfig + " at " + queueAddress);
 											promise.complete();
 										} else {
 											promise.fail(removeResult.cause());
@@ -144,7 +140,7 @@ public class ExchangeSharedData implements Exchange {
 								} else {
 									queueConfig.put("subscribeCount", subscribeCount - 1);
 									map.put(queueAddress, queueConfig, promise);
-									LOGGER.info("Queue updated : " + queueConfig + " at " + queueAddress);
+									// LOGGER.info("Queue updated : " + queueConfig + " at " + queueAddress);
 								}
 
 							} else {
@@ -189,13 +185,13 @@ public class ExchangeSharedData implements Exchange {
 						}
 
 					} else {
-						LOGGER.error("Cannot get queue address list", keysResult.cause());
+						// LOGGER.error("Cannot get queue address list", keysResult.cause());
 					}
 
 				});
 
 			} else {
-				LOGGER.error("Cannot get Exchange queue", ar.cause());
+				// LOGGER.error("Cannot get Exchange queue", ar.cause());
 			}
 
 		});
