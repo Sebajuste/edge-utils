@@ -5,6 +5,7 @@ import java.util.Set;
 import io.edge.utils.exchange.Exchange;
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -20,11 +21,11 @@ import io.vertx.core.shareddata.Lock;
 public class ExchangeSharedData implements Exchange {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(ExchangeSharedData.class);
-	
+
 	private final Vertx vertx;
 
 	private final String name;
-	
+
 	private final JsonObject options;
 
 	public ExchangeSharedData(Vertx vertx, String name, JsonObject options) {
@@ -33,41 +34,43 @@ public class ExchangeSharedData implements Exchange {
 		this.name = name;
 		this.options = options;
 	}
-	
-	private void lock(Handler<Promise<Void>> resultHandler) {
-		
+
+	private Future<Promise<Void>> lock(Handler<Promise<Void>> resultHandler) {
+
+		Promise<Promise<Void>> promise = Promise.promise();
+
 		vertx.sharedData().getLock("vertx.exchange." + name + ".lock", lockResult -> {
-			
+
 			if (lockResult.succeeded()) {
 				Lock lock = lockResult.result();
 
-				Promise<Void> promise = Promise.promise();
-				
-				promise.future().setHandler(ar -> lock.release());
-				
-				resultHandler.handle(promise);
-				
-				
+				Promise<Void> p = Promise.promise();
+
+				p.future().onComplete(ar -> lock.release());
+
+				promise.complete(p);
+
 			} else {
-				resultHandler.handle(Promise.failedPromise(lockResult.cause()));
+				promise.fail(lockResult.cause());
 			}
-			
+
 		});
-		
+
+		return promise.future();
 	}
-	
+
 	private void connectQueue(Message<Object> message) {
-		
+
 		String queueAddress = message.headers().get("queueAddress");
-		
-		this.lock( future -> {
-			
-			vertx.sharedData().<String, JsonObject> getAsyncMap("vertx.exchange." + name, ar -> {
-				
+
+		this.lock(future -> {
+
+			vertx.sharedData().<String, JsonObject>getAsyncMap("vertx.exchange." + name, ar -> {
+
 				if (ar.succeeded()) {
-					
+
 					AsyncMap<String, JsonObject> map = ar.result();
-					
+
 					map.get(queueAddress, queueConfigResult -> {
 
 						if (queueConfigResult.succeeded()) {
@@ -84,40 +87,40 @@ public class ExchangeSharedData implements Exchange {
 							map.put(queueAddress, queueConfig, future);
 
 							LOGGER.info("Queue added/updated : " + queueConfig + " at " + queueAddress);
-							
+
 							message.reply(null);
-							
+
 						} else {
 							message.fail(0, queueConfigResult.cause().getMessage());
-							
+
 							future.fail(queueConfigResult.cause());
 						}
 
 					});
-					
+
 				} else {
 					message.fail(0, ar.cause().getMessage());
 					future.fail(ar.cause());
 				}
-				
+
 			});
-			
+
 		});
-		
+
 	}
-	
+
 	private void disconnectQueue(Message<Object> message) {
-		
+
 		String queueAddress = message.headers().get("queueAddress");
-		
-		this.lock( promise -> {
-			
-			vertx.sharedData().<String, JsonObject> getAsyncMap("vertx.exchange." + name, ar -> {
-				
+
+		this.lock(promise -> {
+
+			vertx.sharedData().<String, JsonObject>getAsyncMap("vertx.exchange." + name, ar -> {
+
 				if (ar.succeeded()) {
-					
+
 					AsyncMap<String, JsonObject> map = ar.result();
-					
+
 					map.get(queueAddress, queueConfigResult -> {
 
 						if (queueConfigResult.succeeded()) {
@@ -153,20 +156,20 @@ public class ExchangeSharedData implements Exchange {
 						}
 
 					});
-					
+
 				} else {
 					promise.fail(ar.cause());
 				}
-				
+
 			});
-			
+
 		});
-		
+
 	}
 
 	private void publishData(Message<Object> message) {
 
-		vertx.sharedData().<String, JsonObject> getAsyncMap("vertx.exchange." + name, ar -> {
+		vertx.sharedData().<String, JsonObject>getAsyncMap("vertx.exchange." + name, ar -> {
 
 			if (ar.succeeded()) {
 
@@ -180,7 +183,8 @@ public class ExchangeSharedData implements Exchange {
 
 						for (String address : addressSet) {
 
-							this.vertx.eventBus().send(address, message.body(), new DeliveryOptions().setHeaders(message.headers()) );
+							this.vertx.eventBus().send(address, message.body(),
+									new DeliveryOptions().setHeaders(message.headers()));
 
 						}
 
@@ -201,9 +205,9 @@ public class ExchangeSharedData implements Exchange {
 	public Exchange start() {
 
 		this.vertx.eventBus().consumer("vertx.exchange." + name + ".queues.connect", this::connectQueue);
-		
+
 		this.vertx.eventBus().consumer("vertx.exchange." + name + ".queues.disconnect", this::disconnectQueue);
-		
+
 		this.vertx.eventBus().consumer("vertx-exchange-" + name + ".publish", this::publishData);
 
 		return this;
@@ -218,12 +222,11 @@ public class ExchangeSharedData implements Exchange {
 	}
 
 	@Override
-	public Exchange publish(Object message, DeliveryOptions options)
-	{
+	public Exchange publish(Object message, DeliveryOptions options) {
 		this.vertx.eventBus().send("vertx-exchange-" + name + ".publish", message, options);
 		return this;
 	}
-	
+
 	@Override
 	public <T> MessageConsumer<T> consumer(String address, Handler<Message<T>> handler) {
 
@@ -234,18 +237,18 @@ public class ExchangeSharedData implements Exchange {
 				.addHeader("queueAddress", address);
 
 		Disposable disposable = Observable.create(emitter -> {
-			
+
 			this.vertx.eventBus().request("vertx.exchange." + name + ".queues.connect", queueConfig, options, ar -> {
-				if( ar.succeeded()) {
+				if (ar.succeeded()) {
 					emitter.onNext(ar.result());
 				} else {
 					emitter.onError(ar.cause());
 				}
 			});
-			
+
 			emitter.setCancellable(() -> {
 				this.vertx.eventBus().send("vertx.exchange." + name + ".queues.disconnect", queueConfig, options);
-				
+
 			});
 		}).subscribe();
 
