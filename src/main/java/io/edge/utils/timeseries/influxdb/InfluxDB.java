@@ -69,10 +69,10 @@ public class InfluxDB {
 		return InfluxDB.connect(client, options);
 	}
 
-	private void getRequest(String requestURI, JsonObject queryParams, Handler<AsyncResult<Buffer>> handler) {
+	private Future<Buffer> getRequest(String requestURI, JsonObject queryParams) {
 
 		final Promise<Buffer> promise = Promise.promise();
-		promise.future().setHandler(handler);
+		
 
 		HttpRequest<Buffer> httpRequest = client.get(requestURI);
 
@@ -109,12 +109,12 @@ public class InfluxDB {
 			}
 		});
 
+		return promise.future();
 	}
 
-	private void postRequest(String requestURI, JsonObject queryParams, Buffer chunk, Handler<AsyncResult<Void>> handler) {
+	private Future<Void> postRequest(String requestURI, JsonObject queryParams, Buffer chunk) {
 
 		final Promise<Void> promise = Promise.promise();
-		promise.future().setHandler(handler);
 
 		HttpRequest<Buffer> httpRequest = client.post(requestURI);
 
@@ -146,122 +146,89 @@ public class InfluxDB {
 
 		});
 
+		return promise.future();
 	}
 
-	public void createDatabase(String dbName, Handler<AsyncResult<Void>> handler) {
-
-		final Promise<Void> promise = Promise.promise();
-		promise.future().setHandler(handler);
+	public Future<Void> createDatabase(String dbName) {
 
 		JsonObject params = new JsonObject()//
 				.put("q", "CREATE DATABASE \"" + dbName + "\"");
 
-		this.getRequest("/query", params, ar -> {
-			if (ar.succeeded()) {
-				promise.complete();
-			} else {
-				promise.fail(ar.cause());
-			}
-		});
+		return this.getRequest("/query", params).map(buffer -> null);
 
 	}
 
-	public void deleteDatabase(String dbName, Handler<AsyncResult<Void>> handler) {
+	public Future<Void> deleteDatabase(String dbName, Handler<AsyncResult<Void>> handler) {
 		
-		final Promise<Void> promise = Promise.promise();
-		promise.future().setHandler(handler);
-
 		JsonObject params = new JsonObject()//
 				.put("q", "DELETE DATABASE \"" + dbName + "\"");
 
-		this.getRequest("/query", params, ar -> {
-			if (ar.succeeded()) {
-				promise.complete();
-			} else {
-				promise.fail(ar.cause());
-			}
-		});
+		return this.getRequest("/query", params).map(buffer -> null);
 
 	}
 
-	public void write(String dbName, Point point, Handler<AsyncResult<Void>> handler) {
+	public Future<Void> write(String dbName, Point point) {
 		try {
 
 			JsonObject params = new JsonObject()//
 					.put("db", dbName)//
 					.put("precision", "ms");
 
-			this.postRequest("/write", params, InfluxDBRequest.writeRequest(point), handler);
+			return this.postRequest("/write", params, InfluxDBRequest.writeRequest(point)).map(buffer -> null);
 		} catch (Exception e) {
-			handler.handle(Future.failedFuture(e));
+			return Future.failedFuture(e);
 		}
 	}
 
-	public void write(BatchPoints batch, Handler<AsyncResult<Void>> handler) {
+	public Future<Void> write(BatchPoints batch) {
 		try {
 
 			JsonObject params = new JsonObject()//
 					.put("db", batch.getDbName())//
 					.put("precision", "ms");
 
-			this.postRequest("/write", params, InfluxDBRequest.writeRequest(batch), handler);
+			return this.postRequest("/write", params, InfluxDBRequest.writeRequest(batch)).map(buffer -> null);
 
 		} catch (Exception e) {
-			handler.handle(Future.failedFuture(e));
+			return Future.failedFuture(e);
 		}
 	}
 
-	public void query(String dbName, String query, Handler<AsyncResult<JsonArray>> resultHandler) {
+	public Future<JsonArray> query(String dbName, String query) {
 		
-		final Promise<JsonArray> promise = Promise.promise();
-		promise.future().setHandler(resultHandler);
-
 		try {
 
 			JsonObject params = new JsonObject()//
 					.put("db", dbName)//
 					.put("q", URLEncoder.encode(query, "UTF-8"));
 
-			this.getRequest("/query", params, ar -> {
-
-				if (ar.succeeded()) {
-
-					try {
-
-						JsonObject body = new JsonObject(ar.result());
-
-						JsonArray resultSeries = body.getJsonArray("results").getJsonObject(0).getJsonArray("series");
-
-						if (resultSeries == null) {
-							promise.fail("Not series found");
-						} else {
-							promise.complete(resultSeries);
-						}
-
-					} catch (Exception e) {
-						promise.fail(e);
-					}
-
-				} else {
-					promise.fail(ar.cause());
+			return this.getRequest("/query", params).map(buffer -> {
+				
+				JsonObject body = new JsonObject(buffer);
+				JsonArray resultSeries = body.getJsonArray("results").getJsonObject(0).getJsonArray("series");
+				
+				if (resultSeries == null) {
+					throw new RuntimeException("Not series found");
 				}
+				
+				return resultSeries;
 
 			});
 		} catch (Exception e) {
-			promise.fail(e);
+			return Future.failedFuture(e);
 		}
 
 	}
 
-	public void querySerie(String dbName, String measurement, LocalDateTime startDateTime, JsonObject tags, String timeGroup, Handler<AsyncResult<Serie>> resultHandler) {
-		this.querySerie(dbName, measurement, startDateTime, null, tags, timeGroup, resultHandler);
+	public Future<Serie> querySerie(String dbName, String measurement, LocalDateTime startDateTime, JsonObject tags, String timeGroup) {
+		return this.querySerie(dbName, measurement, startDateTime, null, tags, timeGroup);
 	}
 
-	public void querySerie(String dbName, String measurement, LocalDateTime startDateTime, LocalDateTime endDateTime, JsonObject tags, String timeGroup, Handler<AsyncResult<Serie>> resultHandler) {
-		this.querySerie(dbName, measurement, startDateTime, endDateTime, ZoneId.systemDefault(), tags, timeGroup, resultHandler);
+	public Future<Serie> querySerie(String dbName, String measurement, LocalDateTime startDateTime, LocalDateTime endDateTime, JsonObject tags, String timeGroup) {
+		return this.querySerie(dbName, measurement, startDateTime, endDateTime, ZoneId.systemDefault(), tags, timeGroup);
 	}
 
-	public void querySerie(String dbName, String measurement, LocalDateTime startDateTime, LocalDateTime endDateTime, ZoneId zone, JsonObject tags, String timeGroup, Handler<AsyncResult<Serie>> resultHandler) {
+	public Future<Serie> querySerie(String dbName, String measurement, LocalDateTime startDateTime, LocalDateTime endDateTime, ZoneId zone, JsonObject tags, String timeGroup) {
 
 		String startDateTimeISO = DateTimeFormatter.ISO_INSTANT.format(startDateTime.atZone(zone).toInstant());
 
@@ -283,48 +250,30 @@ public class InfluxDB {
 		String query = queryBuilder.groupBy("time(" + timeGroup + ") FILL(null)")//
 				.build();
 
-		Promise<Serie> promise = Promise.promise();
-		promise.future().setHandler(resultHandler);
+		
+		return this.query(dbName, query)//
+		.map(series -> {
+			JsonObject resultSerie = series.getJsonObject(0);
 
-		this.query(dbName, query, ar -> {
+			List<SeriePoint> points = new ArrayList<>();
 
-			if (ar.succeeded()) {
+			JsonArray values = resultSerie.getJsonArray("values");
 
-				JsonArray series = ar.result();
+			for (int index = 0; index < values.size(); ++index) {
 
-				try {
+				String strDateTime = values.getJsonArray(index).getString(0);
 
-					JsonObject resultSerie = series.getJsonObject(0);
+				Object value = values.getJsonArray(index).getValue(1);
 
-					List<SeriePoint> points = new ArrayList<>();
+				ZonedDateTime zdt = ZonedDateTime.parse(strDateTime, DateTimeFormatter.ISO_INSTANT.withZone(ZoneId.systemDefault()));
 
-					JsonArray values = resultSerie.getJsonArray("values");
+				points.add(new SeriePoint(value, zdt.toInstant().toEpochMilli()));
 
-					for (int index = 0; index < values.size(); ++index) {
-
-						String strDateTime = values.getJsonArray(index).getString(0);
-
-						Object value = values.getJsonArray(index).getValue(1);
-
-						ZonedDateTime zdt = ZonedDateTime.parse(strDateTime, DateTimeFormatter.ISO_INSTANT.withZone(ZoneId.systemDefault()));
-
-						points.add(new SeriePoint(value, zdt.toInstant().toEpochMilli()));
-
-					}
-
-					promise.complete(new Serie(measurement, tags, points));
-
-				} catch (Exception e) {
-					promise.fail(e);
-					e.printStackTrace();
-				}
-
-			} else {
-				promise.fail(ar.cause());
 			}
-
+			
+			return new Serie(measurement, tags, points);
 		});
-
+		
 	}
 
 }

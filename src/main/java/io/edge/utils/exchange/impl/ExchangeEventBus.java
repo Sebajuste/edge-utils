@@ -101,6 +101,7 @@ public class ExchangeEventBus implements Exchange {
 		return new ExchangeMessageConsumer<T>(this.vertx.eventBus().consumer(address, resultHandler), v -> {
 			this.vertx.eventBus().send("vertx.exchange." + name + ".unsubscribe", null, subscribeQueueOption);
 		});
+
 	}
 
 }

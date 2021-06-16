@@ -1,6 +1,7 @@
 package io.edge.utils.exchange.impl;
 
 import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.eventbus.MessageConsumer;
@@ -80,14 +81,15 @@ public class ExchangeMessageConsumer<T> implements MessageConsumer<T> {
 	}
 
 	@Override
-	public void unregister() {
-		onUnregisterHandler.handle(null);
+	public Future<Void> unregister() {
 		messageConsumer.unregister();
+		onUnregisterHandler.handle(null);
+		return Future.succeededFuture();
 	}
 
 	@Override
 	public void unregister(Handler<AsyncResult<Void>> completionHandler) {
-		messageConsumer.unregister();
+		completionHandler.handle(this.unregister());
 	}
 
 }
